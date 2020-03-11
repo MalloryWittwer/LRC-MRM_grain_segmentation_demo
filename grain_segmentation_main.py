@@ -16,7 +16,7 @@ from skimage.morphology import skeletonize
 
 from sklearn.decomposition import NMF
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import normalized_mutual_info_score
+from sklearn.metrics import normalized_mutual_info_score as nmis
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -34,7 +34,7 @@ def timeit(method):
 
 def open_data(folder_name):
     
-    ROOT_DIR = 'C:/Users/mallo/Spyder_work/GrainSeg/Grain_Segmentation_github/'
+    ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
     
     path = os.path.join(ROOT_DIR, folder_name)
     
@@ -84,11 +84,11 @@ def get_training_batch(sample_size):
     X0 = data[idx]
     
     # Modify location by 1 pixel
-    modifiedX = (xmap[idx] + (np.random.randint(0,2,sample_size)*2-1)).astype('int')
-    modifiedX = np.clip(modifiedX, 0, rx-1)
+    modifiedX = xmap[idx] + (np.random.randint(0,2,sample_size)*2-1)
+    modifiedX = np.clip(modifiedX.astype('int'), 0, rx-1)
 
-    modifiedY = (ymap[idx] + (np.random.randint(0,2,sample_size)*2-1)).astype('int')
-    modifiedY = np.clip(modifiedY, 0, ry-1)
+    modifiedY = ymap[idx] + (np.random.randint(0,2,sample_size)*2-1)
+    modifiedY = np.clip(modifiedY.astype('int'), 0, ry-1)
     
     # Find the corresponding signal
     c = 0
@@ -193,8 +193,10 @@ def hierarchical_merging(verbose=False):
             if (rag.nodes[n1]['count'] > rag.nodes[n2]['count']):
                 n1, n2 = n2, n1
 
-            rag.nodes[n2]['labels'] = rag.nodes[n1]['labels'] + rag.nodes[n2]['labels']
-            rag.nodes[n2]['count'] = rag.nodes[n1]['count'] + rag.nodes[n2]['count']
+            rag.nodes[n2]['labels'] = (rag.nodes[n1]['labels'] 
+                                       + rag.nodes[n2]['labels'])
+            rag.nodes[n2]['count'] = (rag.nodes[n1]['count'] 
+                                       + rag.nodes[n2]['count'])
             
             n1_nbrs = set(rag.neighbors(n1))
             n2_nbrs = set(rag.neighbors(n2))
@@ -299,29 +301,30 @@ def compare_to_reference(segmentation, reference, eulers):
     plt.tight_layout()
     plt.show()
 
-    score = normalized_mutual_info_score(segmentation.ravel(), reference.ravel())
+    score = nmis(segmentation.ravel(), reference.ravel())
     
     print('-------------------------------------------')
     print('\n> Mutual info score: {:.3f}\n'.format(score))
     print('-------------------------------------------')
 
-if __name__=='__main__':
+def segmentation_pipeline(folder_name):
     
-    # DATA IMPORTATION
-    data, shape, s0, s1, rx, ry, labels, gbs, eulers = open_data(
-#            'data_nickel'
-            'data_aluminium'
-            )
+    global data, shape, s0, s1, rx, ry, labels, gbs, eulers, model
+    
+        # DATA IMPORTATION
+    data, shape, s0, s1, rx, ry, labels, gbs, eulers = open_data(folder_name)
     
     # DIMENSIONALITY REDUCTION
     data = reduce_dimensions(data, sampling_fraction=0.5, components=20)
     
     # MODEL TRAINING
-    model = LogisticRegression(C=1)
-    model = train_model(model, sampling_fraction=0.5)
+    model = train_model(LogisticRegression(C=1), sampling_fraction=0.5)
     
     # REGION-MERGING SEGMENTATION
     segmentation = hierarchical_merging(verbose=False)
     
     # COMPARISON WITH REFERENCE
     compare_to_reference(segmentation, labels, eulers)
+
+if __name__=='__main__':
+    segmentation_pipeline(data_folder_name='data_nickel')
