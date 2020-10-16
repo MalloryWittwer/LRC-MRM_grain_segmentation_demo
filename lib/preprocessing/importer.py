@@ -19,16 +19,16 @@ class DataImporter():
             - labels.npy: format (rx,ry) int32
         '''
         ### LOAD DRM DATASET
-        data = self._open_file('data.npy')
+        data = self._open_file('drm_data.npy')
         rx, ry, s0, s1 = data.shape
         data = data.reshape((rx*ry,s0*s1))
 
         ### LOAD EULER ANGLES
-        eulers = self._open_file('eulers.npy')
+        eulers = self._open_file('euler_angles.npy')
         eulers = eulers.reshape((rx*ry,3))
         
         ### LOAD REFERENCE SEGMENTATION
-        labels = self._open_file('labels.npy')
+        labels = self._open_file('reference.npy')
         labels = labels.ravel()
         
         ### RETURN DATASET AS A DICTIONARY
