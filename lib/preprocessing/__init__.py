@@ -1,2 +1,2 @@
-from .data_importation import DataImporter
-from .dimensionality_reduction import DataCompressor
+from .importer import DataImporter
+from .dim_reduc import NMFDataCompressor

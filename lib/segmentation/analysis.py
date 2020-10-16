@@ -1,7 +1,3 @@
-'''
-Helper functions for the analysis of grain segmentation.
-'''
-
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -15,6 +11,7 @@ def compare_to_reference(dataset):
     '''
     Shows a comparison between segmentation and reference, returns MIS score.
     '''
+    # Collect data from dataset
     rx, ry = dataset.get('spatial_resol')
     segmentation = dataset.get('segmentation').reshape((rx,ry))
     reference = dataset.get('labels').reshape((rx,ry))
@@ -25,35 +22,31 @@ def compare_to_reference(dataset):
     gbsref = skeletonize(find_boundaries(reference, mode='inner'))
     
     # Assign coloring based in IPF-Z    
-    rot_mat_inv, _ = eulers_to_orientation(eulers.reshape((rx*ry,3)))
-    ipfZ = return_Zmap(rot_mat_inv).reshape((rx,ry,3))
+    rot_mat_inv, _ = _eulers_to_orientation(eulers.reshape((rx*ry,3)))
+    ipfZ = _ipf_Z_map(rot_mat_inv).reshape((rx,ry,3))
     lab = label2rgb(segmentation, ipfZ, kind='avg')
-    wrgbseg = label2rgb(segmentation, lab, kind='avg')
-    wrgbseg[gbsseg] = (1,1,1)
-    wrgbref = label2rgb(reference, lab, kind='avg')
-    wrgbref[gbsref] = (1,1,1)
+    rgb_seg = label2rgb(segmentation, lab, kind='avg')
+    rgb_seg[gbsseg] = (1,1,1)
+    rgb_ref = label2rgb(reference, lab, kind='avg')
+    rgb_ref[gbsref] = (1,1,1)
     
     # Mutual information score between segmentation and reference
-    score = nmis(segmentation.ravel(), reference.ravel())
+    mis_score = nmis(segmentation.ravel(), reference.ravel())
 
     # Plot a figure
     fig = plt.figure(figsize=(16,8))
     ax = fig.add_subplot(121)
-    ax.imshow(
-        (wrgbseg*255).astype(np.uint8)
-        )
+    ax.imshow((rgb_seg*255).astype(np.uint8))
     ax.axis('off')
-    # ax.set_title('Segmentation', weight='bold')
+    ax.set_title('Output segmentation', weight='bold')
     ax = fig.add_subplot(122)
-    ax.imshow(
-        (wrgbref*255).astype(np.uint8)
-        )
+    ax.imshow((rgb_ref*255).astype(np.uint8))
     ax.axis('off')
-    # ax.set_title('Reference', weight='bold')
+    ax.set_title('Reference', weight='bold')
     plt.tight_layout()
     plt.show()
 
-    return score
+    return mis_score
 
 def size_dist_plot(dataset, limdown=0, limup=1000, gsize=100):
     '''
@@ -104,7 +97,7 @@ def size_dist_plot(dataset, limdown=0, limup=1000, gsize=100):
     plt.legend(loc=4)
     plt.show()
     
-def eulers_to_orientation(eulers_list):
+def _eulers_to_orientation(eulers_list):
     '''Converts a set of euler angles to a set of rotation matrices and inv.'''
     i1  = eulers_list[:,0]
     i2  = eulers_list[:,1]
@@ -140,7 +133,7 @@ def eulers_to_orientation(eulers_list):
     rot_mat_inv = np.linalg.inv(np.reshape(rot_mat , [rot_mat.shape[0], 3, 3]))
     return rot_mat_inv, rot_mat
 
-def colorize(indeces):
+def _colorize(indeces):
     '''Returns a color based on the Miller indeces of a plane'''
     a = np.abs(np.subtract(indeces[:,2], indeces[:,1]))
     b = np.abs(np.subtract(indeces[:,1], indeces[:,0]))
@@ -157,7 +150,7 @@ def colorize(indeces):
                              np.expand_dims(c, -1)), axis=1)
     return rgb
 
-def symmetrize(indeces):
+def _symmetrize(indeces):
     indeces = np.abs(indeces)
     norms = (np.square(indeces[:,0]) +
              np.square(indeces[:,1]) + 
@@ -168,10 +161,10 @@ def symmetrize(indeces):
     indeces = np.sort(indeces, axis=1)
     return indeces
 
-def return_Zmap(rot_mat_inv):
+def _ipf_Z_map(rot_mat_inv):
     '''Returns the IPF (Z) map based on an inverted rotation matrix'''
-    output = np.concatenate((symmetrize(rot_mat_inv[:,:,0]),
-                             symmetrize(rot_mat_inv[:,:,1]),
-                             symmetrize(rot_mat_inv[:,:,2])), axis=1)
-    rgbz_pred = colorize(output[:,6:9])
+    output = np.concatenate((_symmetrize(rot_mat_inv[:,:,0]),
+                             _symmetrize(rot_mat_inv[:,:,1]),
+                             _symmetrize(rot_mat_inv[:,:,2])), axis=1)
+    rgbz_pred = _colorize(output[:,6:9])
     return rgbz_pred

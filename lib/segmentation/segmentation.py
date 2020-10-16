@@ -1,4 +1,3 @@
-
 import numpy as np
 from skimage.future.graph import RAG
 import heapq
@@ -8,34 +7,38 @@ from lib.segmentation.training import _vector_similarity
 
 def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
     '''
-    Inspired by skimage.future.graph.merge_hierarchical function of Skimage.
+    Implementation of the multi-region merging segmentation controlled by 
+    a trained classifier model. Design of the function was originally inspired 
+    by the merge_hierarchical function of Skimage:
     (https://github.com/scikit-image/scikit-image/blob/master/skimage/)
-    Performs region-merging segmentation using previously trained classifier
-    model to define edge weights. Details in the publication.
     '''
+    # Collect spatial resolution and data from dataset
     rx, ry = dataset.get('spatial_resol')
     data = dataset.get('data')
     
-    # Merging decision function
+    # Define merging decision function
     mdf = lambda vect:model.predict_proba(np.atleast_2d(vect))[0,1]
     
-    # Initialize the RAG graph
+    # Initialize region agacency graph (RAG)
     rag, edge_heap, segments = _initialize_graph(rx, ry, data, model, p_limit)
     
     # Start the region-merging algorithm
     while (len(edge_heap) > 0) and (edge_heap[0][0] < p_limit):
-        # Pop the smallest edge if weight < p_limit
+        # Pop the smallest edge from the heap if weight < p_limit
         smallest_weight, n1, n2, valid = heapq.heappop(edge_heap)
+        
         # Check that the edge is valid
         if valid:
             # Make sure that n1 is the smallest regiom
             if (rag.nodes[n1]['count'] > rag.nodes[n2]['count']):
                 n1, n2 = n2, n1
+                
             # Update properties of n2
             rag.nodes[n2]['labels'] = (rag.nodes[n1]['labels'] 
                                        + rag.nodes[n2]['labels'])
             rag.nodes[n2]['count'] = (rag.nodes[n1]['count'] 
                                        + rag.nodes[n2]['count'])
+            
             # Get new neighbors of n2
             n1_nbrs = set(rag.neighbors(n1))
             n2_nbrs = set(rag.neighbors(n2))
@@ -61,14 +64,14 @@ def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
                 # Push edges to the heap
                 heapq.heappush(edge_heap, heap_item)
     
-    # Compute grain map
+    # Compute grain segmentation map
     label_map = np.arange(segments.max() + 1)
     for ix, (n, d) in enumerate(rag.nodes(data=True)):
         for lab in d['labels']:
             label_map[lab] = ix
     segmentation = label_map[segments]
     
-    # Grain boundary map
+    # Compute grain boundary map
     gbs = skeletonize(find_boundaries(segmentation, mode='inner'))
     
     # Return updated dataset
@@ -80,7 +83,7 @@ def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
 def _initialize_graph(rx, ry, data, model, p_limit=0.5):
     '''Initializes the Region Adjacency Graph (RAG).'''
     
-    # Merging decision function
+    # Define merging decision function
     mdf = lambda vect:model.predict_proba(np.atleast_2d(vect))[0,1]
     
     # Initialize RAG

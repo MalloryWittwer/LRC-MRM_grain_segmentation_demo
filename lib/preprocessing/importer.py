@@ -8,29 +8,30 @@ import warnings
 
 class DataImporter():
     def __init__(self, path):
+        '''Defines path to the data folder'''
         self.path = path
     
     def load_npy_data(self):
         '''
         Loads three separate NPY files in specified path folder:
             - data.npy: format (rx,ry,s0,s1) uint8
-            - eulers.npy: format (rx,ry,3) float
-            - labels.npy: format (rx,ry)
+            - eulers.npy: format (rx,ry,3) float32
+            - labels.npy: format (rx,ry) int32
         '''
-        ### LOADING DRM DATA
+        ### LOAD DRM DATASET
         data = self._open_file('data.npy')
         rx, ry, s0, s1 = data.shape
         data = data.reshape((rx*ry,s0*s1))
 
-        ### LOADING EULER ANGLES
+        ### LOAD EULER ANGLES
         eulers = self._open_file('eulers.npy')
         eulers = eulers.reshape((rx*ry,3))
         
-        ### LOADING REFERENCE SEGMENTATION
+        ### LOAD REFERENCE SEGMENTATION
         labels = self._open_file('labels.npy')
         labels = labels.ravel()
         
-        ### RETURNING A DATASET DICTIONARY
+        ### RETURN DATASET AS A DICTIONARY
         dataset = {
             'data':data, 
             'eulers':eulers,

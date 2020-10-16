@@ -3,23 +3,31 @@ from sklearn.metrics import confusion_matrix
 
 def fit_lrc_model(dataset, model, training_set_size, test_set_size):
     '''Fits a model, computes precision, recall and accuracy'''
+    # Get training set by random sampling
     training_set = _get_sample_set(dataset, training_set_size)
-
-    xtr = training_set['x']
-    ytr = training_set['y']
     
-    model.fit(xtr, ytr)
-
-    train_preds = model.predict(xtr)
+    # Fit the model
+    model.fit(training_set['x'], training_set['y'])
     
+    # Get training predictions
+    train_preds = model.predict(training_set['x'])
+    
+    # Get test set by random sampling
     test_set  = _get_sample_set(dataset, test_set_size)
-    xte = test_set['x']
-    yte = test_set['y']
-    test_preds = model.predict(xte)
     
+    # Get test predictions
+    test_preds = model.predict(test_set['x'])
+    
+    # Training confusion matrix
+    cm_training = confusion_matrix(training_set['y'], train_preds)
+    
+    # Test confusion matrix
+    cm_test = confusion_matrix(test_set['y'], test_preds)
+    
+    # Accuracy metrics
     metrics = {
-        'training_accuracy':_accuracy(confusion_matrix(ytr, train_preds)),
-        'test_set_accuracy':_accuracy(confusion_matrix(yte, test_preds)),
+        'training_accuracy':_accuracy(cm_training),
+        'test_set_accuracy':_accuracy(cm_test),
     }
     
     return model, metrics
@@ -55,9 +63,8 @@ def _get_xymaps(rx, ry):
 
 def _get_adjacent_sample(rx, ry, data, sample_size, xmap, ymap):
     '''Samples Sbar, the distribution of adjacent pixel feature vectors.'''
-    Xclose = None
-    yclose = None
-        
+    
+    # Get set of random data
     X0, idx = _shuffler(data, sample_size)
 
     # Modify location by 1 pixel
@@ -76,79 +83,72 @@ def _get_adjacent_sample(rx, ry, data, sample_size, xmap, ymap):
         num = i[(u.ravel()==1)]
         X1[c] = data[num]
         c += 1
-
-    xcl = _vector_similarity(X1,X0)
-    if Xclose is None:
-        Xclose = xcl.copy()
-    else:
-        Xclose = np.vstack((Xclose, xcl))
-            
+    
+    # Compute distance vectors
+    Xclose = _vector_similarity(X1,X0)
+    
+    # Label as 0
     yclose = np.zeros(Xclose.shape[0], dtype=np.uint8)
     
     return Xclose, yclose
 
 def _get_non_adjacent_sample(data, sample_size, xmap, ymap):
     '''Samples Dbar, the distribution of non-adjacent pixels.'''
-    Xfar = None
-    yfar = None
-    X0, idx = _shuffler(data, sample_size)
-    # Get location of the selected pixel pairs
-    locX_0 = xmap[idx]
-    locY_0 = ymap[idx]
-    X1, idx = _shuffler(data, sample_size)
-    # Get location of the selected pixel pairs
-    locX_1 = xmap[idx]
-    locY_1 = ymap[idx]
     
-    # Make sure that distance between pairs is > 1
+    # Get random set of data and location of selected pixel pairs, twice
+    X0, idx = _shuffler(data, sample_size)
+    locX_0, locY_0 = xmap[idx], ymap[idx]
+    X1, idx = _shuffler(data, sample_size)
+    locX_1, locY_1 = xmap[idx], ymap[idx]
+    
+    # Compute distance vectors
+    Xfar = _vector_similarity(X1,X0)
+    
+    # Filter out adjacent examples
     adjacent_filter = np.abs(locX_0-locX_1) + np.abs(locY_0-locY_1) < 2
-    print(f'************ Filtered out {adjacent_filter.sum()} examples')
-
-    xf = _vector_similarity(X1,X0)
-    xf = xf[~adjacent_filter] # filter out adjacent examples (optional)
-    if Xfar is None:
-        Xfar = xf.copy()
-    else:
-        Xfar = np.vstack((Xfar, xf))
+    Xfar = Xfar[~adjacent_filter] 
+    
+    # Label as 1
     yfar = np.ones(Xfar.shape[0], dtype=np.uint8)
+    
     return Xfar, yfar
 
 def _get_sample_set(dataset, sample_size):
     '''
-    Extracts a training set from the data.
-    - Class 0: pais of adjacent voxels
-    - Class 1: random pairs of voxels
+    Randomly extracts a training or test set from the dataset.
+    - Class 0: pairs of adjacent voxels
+    - Class 1: pairs of non-adjacent voxels
     '''
+    # Collect data from the dataset
     rx, ry = dataset.get('spatial_resol')
     data = dataset.get('data')
-    
     xmap, ymap = _get_xymaps(rx, ry)
     
-    # ----------------- # Extract adjacent sample
+    # Extract adjacent sample
     Xclose, yclose = _get_adjacent_sample(
         rx, ry, data, sample_size, xmap, ymap)
     
-    # ----------------- # Extract random sample
+    # Extract non-adjacent sample
     Xfar, yfar = _get_non_adjacent_sample(data, sample_size, xmap, ymap)
 
-    # ----------------- # Stack both samples
+    # Stack both samples
     X = np.vstack((Xclose, Xfar)) 
     y = np.hstack((yclose, yfar))
     
-    # Shuffle training set
+    # Shuffle extracted set
     idx = np.arange(0, X.shape[0])
     np.random.shuffle(idx)
     X = X[idx]
     y = y[idx]
-
-    training_set = {'x':X, 'y':y}
     
-    return training_set
+    sample_set = {'x':X, 'y':y}
+    
+    return sample_set
 
 def _vector_similarity(a, b):
-    '''Defines vector similarity'''
+    '''Returns distance vector of two input feature vectors'''
     return np.square(np.subtract(a,b))
 
 def _accuracy(cm):
-    '''Defines accuracy metric'''
+    '''Returns classification accuracy based on confusion matrix'''
     return (cm[0,0]+cm[1,1])/cm.sum()
