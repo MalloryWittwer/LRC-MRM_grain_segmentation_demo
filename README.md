@@ -1,6 +1,6 @@
-# Grain Identification in Polycrystals by Linear Classification and Region Merging of Directional Reflectance Signals 
+# A Parameter-free Grain Segmentation Method based on Directional Reflectance Microscopy 
 
-Corresponding publication is available from [**Link to publication**]
+Corresponding publication is available from the journal *Materials Characterization*.
 
 --------
 
@@ -14,5 +14,5 @@ To test the code the experimental DRM datasets presented in the publication, ple
 
 Segmentation results presented and discussed in the publication can then be reproduced by running the test file **test_LRC-MRM.py** located in the **/tests** folder. The output of the test is a segmented grain map resulting from the LRC-MRM pipeline visualized against the reference and complemented with the corresponding grain size distributions.
 
-For any question or inquiry, please contact the corresponding author.
+For any inquiry, please contact the corresponding author.
 
