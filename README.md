@@ -4,7 +4,7 @@ Corresponding publication is available from the journal *Materials Characterizat
 
 --------
 
-To test the code the experimental DRM datasets presented in the publication, please first download the data from [**Link to datasets**] and add the data folder to the code repository next to the **test** and **lib** folders. Each folder in the **/data** directory contains the necessary data for each studied sample (**Ni**, **Al** and **Ti**) in three separate NPY files:
+To test the code the experimental DRM datasets presented in the publication, please first download the data from http://dx.doi.org/10.17632/t4wvpy29fz.1. and add the data folder to the code repository next to the **test** and **lib** folders. Each folder in the **/data** directory contains the necessary data for each studied sample (**Ni**, **Al** and **Ti**) in three separate NPY files:
 
 - **drm_data.npy**	Contains the DRM dataset in the form of a 4D matrix of shape (x, y, theta, phi) and type UINT-8.
 
