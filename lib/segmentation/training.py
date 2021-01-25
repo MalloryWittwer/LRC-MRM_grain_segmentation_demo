@@ -1,19 +1,48 @@
 import numpy as np
+
+np.random.seed(0)
+print('SETTING THE SEED TO ZERO -----<')
+
 from sklearn.metrics import confusion_matrix
 
-def fit_lrc_model(dataset, model, training_set_size, test_set_size):
+from sklearn.model_selection import KFold
+
+
+def fit_lrc_model(dataset, model, training_set_size, test_set_size,
+                  with_regularization=False,
+                  ):
     '''Fits a model, computes precision, recall and accuracy'''
     # Get training set by random sampling
     training_set = _get_sample_set(dataset, training_set_size)
     
+    # print('Training set: ', training_set['x'][0])
+    
+    # Get test set by random sampling
+    test_set = _get_sample_set(dataset, test_set_size)
+    
+    if with_regularization:
+        strengths = [1e-3, 1e-2, 1e-1, 1.0, 10, 100]
+        kf = KFold(n_splits=len(strengths))
+        accs = []
+        for k, (train_index, valid_index) in enumerate(kf.split(training_set['x'])):
+            params = {'penalty':'l2', 'C':strengths[k]}
+            model.set_params(**params)
+            model.fit(training_set['x'][train_index], training_set['y'][train_index])
+            valid_preds = model.predict(training_set['x'][valid_index])
+            cm_valid = confusion_matrix(training_set['y'][valid_index], valid_preds)
+            accs.append(_accuracy(cm_valid))
+        best_strength = strengths[np.argmax(accs)]
+        params = {'penalty':'l2', 'C':best_strength}
+        model.set_params(**params)
+        
+        print('ACCS: ', accs)
+        print('BEST STRENGTH: ', best_strength)
+        
     # Fit the model
     model.fit(training_set['x'], training_set['y'])
     
     # Get training predictions
     train_preds = model.predict(training_set['x'])
-    
-    # Get test set by random sampling
-    test_set  = _get_sample_set(dataset, test_set_size)
     
     # Get test predictions
     test_preds = model.predict(test_set['x'])
@@ -38,6 +67,9 @@ def _shuffler(data, sample_size):
     with the corresponding indeces.
     '''
     idx = np.arange(data.shape[0])
+    
+    # np.random.seed(0)
+    
     np.random.shuffle(idx)
     sample = data[idx[:sample_size]]
     indeces = idx[:sample_size]
@@ -68,6 +100,9 @@ def _get_adjacent_sample(rx, ry, data, sample_size, xmap, ymap):
     X0, idx = _shuffler(data, sample_size)
 
     # Modify location by 1 pixel
+    
+    # np.random.seed(0)
+    
     modifiedX = xmap[idx] + (np.random.randint(0,2,sample_size)*2-1)
     modifiedX = np.clip(modifiedX.astype('int'), 0, rx-1)
     modifiedY = ymap[idx] + (np.random.randint(0,2,sample_size)*2-1)
@@ -137,6 +172,9 @@ def _get_sample_set(dataset, sample_size):
     
     # Shuffle extracted set
     idx = np.arange(0, X.shape[0])
+    
+    # np.random.seed(0)
+    
     np.random.shuffle(idx)
     X = X[idx]
     y = y[idx]

@@ -77,6 +77,7 @@ def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
     # Return updated dataset
     dataset['segmentation'] = segmentation.ravel()
     dataset['boundaries'] = gbs.ravel()
+    dataset['rag'] = rag
     
     return dataset
 

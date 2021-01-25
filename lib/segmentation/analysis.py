@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.ticker import PercentFormatter
@@ -24,6 +25,15 @@ def compare_to_reference(dataset):
     # Assign coloring based in IPF-Z    
     rot_mat_inv, _ = _eulers_to_orientation(eulers.reshape((rx*ry,3)))
     ipfZ = _ipf_Z_map(rot_mat_inv).reshape((rx,ry,3))
+    
+    np.save('C:/Users/mallo/Desktop/ipfZ.npy', ipfZ)
+    
+    # ### SHOWING ROW IPF-Z
+    # fig, ax = plt.subplots(figsize=(8,8))
+    # ax.imshow(ipfZ)
+    # ax.axis('off')
+    # plt.show()
+    
     lab = label2rgb(segmentation, ipfZ, kind='avg')
     rgb_seg = label2rgb(segmentation, lab, kind='avg')
     rgb_seg[gbsseg] = (1,1,1)
@@ -47,6 +57,126 @@ def compare_to_reference(dataset):
     plt.show()
 
     return mis_score
+
+def reconstruction_analysis(dataset, data):
+    
+    rx, ry = dataset.get('spatial_resol')
+    s0, s1 = dataset.get('angular_resol')
+    rag = dataset.get('rag')
+    um_per_pix = dataset.get('um_per_px')
+    compressor = dataset.get('compressor')
+    comps = compressor.compressor.components_
+    compressed_data = dataset.get('data')
+    
+    reconstructed_data = np.matmul(compressed_data, comps)
+    
+    print('DONE') # Bugs from here...
+    error_map = np.mean(np.square(reconstructed_data-data), axis=1)
+    error_map = error_map.reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
+    seg = dataset.get('segmentation').reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
+    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
+    ax.imshow(error_map)
+    ax.axis('off')
+    plt.show()
+    
+    data_reshaped = data.reshape((rx,ry,s0*s1))
+    errs = []
+    sizes = []
+    for ix, (n, d) in enumerate(rag.nodes(data=True)):
+        m = d.get('master')
+        x, y = int(d.get('xpos')), int(d.get('ypos'))
+        orig = data_reshaped[x,y]
+        reco = np.matmul(m, comps)#.reshape((s0, s1))
+        recon_error = np.mean(np.square(reco-orig))
+        errs.append(recon_error)
+        sizes.append(d.get('count'))
+
+    errs = np.array(errs)
+    sizes = np.sqrt(np.array(sizes)*um_per_pix**2)
+    
+    ### Size partitioning histogram
+    
+    size_threshold = 50
+    small_grain_errors = errs[sizes<size_threshold]
+    large_grain_errors = errs[sizes>size_threshold]
+    
+    med = np.median(errs)
+    print('MED: ', med)
+    print('AVG: ', np.mean(errs))
+    
+    error_quantile = med
+    f_small = small_grain_errors[small_grain_errors>error_quantile]
+    f_large = large_grain_errors[large_grain_errors>error_quantile]
+    
+    print('f small: ', f_small.shape)
+    print('f large: ', f_large.shape)
+    print('small grains: ', small_grain_errors.shape)
+    print('large grains: ', large_grain_errors.shape)
+    
+    f = len(f_small) / (len(f_large) + len(f_small))
+    print(f'Fraction of anomalies in small grains: {f}')
+    n = len(small_grain_errors) / (len(large_grain_errors) + len(small_grain_errors))
+    print(f'Fraction of anomalies in all grains: {n}')
+    
+    import seaborn as sns
+    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
+    sns.distplot(large_grain_errors, bins=20, kde=True, ax=ax, label='> 100 px')
+    sns.distplot(small_grain_errors, bins=20, kde=True, ax=ax, label='< 100 px')
+    plt.legend()
+    plt.show()
+    
+    ###
+
+    bin_width = 100
+    
+    binned_errs = []
+    binned_stds = []
+    labs = []
+    for k in range(0, 500+bin_width, bin_width):
+        filt = (sizes < k+bin_width) & (sizes > k)
+        binned_errs.append(errs[filt].mean())
+        binned_stds.append(errs[filt].std())
+        labs.append('{}-{}'.format(k, k+bin_width))
+    
+    filt = (sizes > 500)
+    binned_errs.append(errs[filt].mean())
+    binned_stds.append(errs[filt].std())
+    labs.append('>500')
+
+    bnr = (binned_errs-min(errs))/max(errs-min(errs))
+    fig, ax = plt.subplots(figsize=(4,3), dpi=200)
+    ax.set_xlabel('Region size (microns)')
+    # ax.set_ylabel('NMF reconstruction error')
+    ax.bar(labs, binned_errs, 
+           color=plt.cm.viridis(bnr),
+           yerr=binned_stds, capsize=3)
+    ax.set_xticklabels(labs, rotation=30)
+    # ax.set_yticks([])
+    plt.show()
+    
+    df = pd.DataFrame(data=seg.ravel(), columns=['grain'])
+    df['grainID'] = df['grain'].astype('str')
+    groups = df.groupby('grainID').count().sort_values('grain', ascending=False)
+    small_grains = np.squeeze(groups.values < 10)
+    small_grains = groups.index[small_grains].values.astype('int')
+    
+    mask = np.zeros(seg.shape, dtype=np.uint8)
+    for idx in small_grains:
+        mask[seg==idx] = 1
+    
+    gbs = dataset.get('boundaries').astype('int').reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
+    
+    composite = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
+    composite[(gbs==0)] = np.array([0,111,158])
+    composite[gbs==1] = np.array([255,255,255])
+    composite[mask==1] = np.array([255,0,0])
+    
+    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
+    ax.imshow(composite)
+    ax.axis('off')
+    plt.show()
+    
+    return sizes, errs
 
 def size_dist_plot(dataset, limdown=0, limup=1000, gsize=100):
     '''
