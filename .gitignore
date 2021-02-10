@@ -2,3 +2,5 @@
 *.npy
 *.out
 tests/garbage.py
+tests/inconel_patch.py
+tests/inconel_patch.py
