@@ -18,6 +18,7 @@ from lib.segmentation import (
     compare_to_reference, 
     size_dist_plot,
     reconstruction_analysis,
+    compute_merging_fraction,
     )
 
 def timeit(method):
@@ -32,67 +33,17 @@ def timeit(method):
     return timed
 
 @timeit
-def run_test(folder, cps, sample_size, spatial_resolution, with_baseline=True,
+def run_test(sample, cps, sample_size, 
+             with_baseline=True, 
              with_regularization=False,
+             with_reconstruction_analysis=False,
+             with_merging_fraction=False,
              ):
     '''
     Runs a pipleine test segmentation based on specified folder
     '''
     
-    if type(cps)==list:
-        
-        accs = []
-        miss = []
-        
-        for c in cps:
-        
-            ### IMPORT THE DATA TO A DATASET INSTANCE
-            dataset = DataImporter(folder).load_npy_data()
-            
-            ### FIT NMF DIMENSIONALITY REDUCTION MODEL
-            compressor = NMFDataCompressor(c) ### cps
-            compressor.fit(dataset, sample_size)
-            dataset['compressor'] = compressor
-            
-            ### REPLACE ORIGINAL DRM DATASET BY NMF FEATURE VECTOR DATASET
-            compressed_dataset = compressor.transform(dataset.get('data'))
-            dataset['data'] = compressed_dataset
-            
-            ### LRC MODEL TRAINING
-            lrc_model, metrics = fit_lrc_model(
-                dataset,
-                model=LogisticRegression(penalty='none'), 
-                training_set_size=sample_size,
-                test_set_size=sample_size,
-            )
-            
-            acc = metrics['test_set_accuracy']
-            print(f'>>> Test set accuracy for {c} components: {acc}')
-            accs.append(acc)
-            
-            ### OPTIONAL: SEGMENTI THE DOMAIN BY LRC-MRM METHOD
-            dataset = lrc_mrm_segmentation(dataset, lrc_model)
-            mutual_info_score = compare_to_reference(dataset)
-            miss.append(mutual_info_score)
-        
-        fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-        ax.plot(cps, accs)
-        ax.set_title('Proxy Accuracy')
-        plt.show()
-        
-        fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-        ax.plot(cps, miss)
-        ax.set_title(f'MIS (best: {cps[np.argmax(miss)]})')
-        plt.show()
-        
-        cps = cps[np.argmax(accs)]
-        print('Finished NMF components testing. USING: ', cps)
-        
-    elif type(cps)==int:
-        pass
-    
-    else:
-        print('Wrong NMF components type --> Use an INT or list of INTS.')
+    folder, spatial_resolution = sample
     
     ### IMPORT THE DATA TO A DATASET INSTANCE
     dataset = DataImporter(folder).load_npy_data()
@@ -107,19 +58,16 @@ def run_test(folder, cps, sample_size, spatial_resolution, with_baseline=True,
     dataset['data'] = compressed_dataset
     
     ### LRC MODEL TRAINING
-    lrc_model, metrics = fit_lrc_model(
+    dataset, metrics = fit_lrc_model(
         dataset,
-        # model=LogisticRegression(penalty='none'),
         model=LogisticRegression(penalty='l2'),
         training_set_size=sample_size,
         test_set_size=sample_size,
-        
         with_regularization=with_regularization,
-        
     )
-
-    ### SEGMENTI THE DOMAIN BY LRC-MRM METHOD
-    dataset = lrc_mrm_segmentation(dataset, lrc_model)
+    
+    ### SEGMENT THE DOMAIN BY LRC-MRM METHOD
+    dataset = lrc_mrm_segmentation(dataset)
     
     ### COMPUTE SCORING AGAINST REFERENCE
     mutual_info_score = compare_to_reference(dataset)
@@ -140,14 +88,15 @@ def run_test(folder, cps, sample_size, spatial_resolution, with_baseline=True,
     
     ### (OPTIONAL) BASELINE MODEL TRAINING (FOR BENCHMARKING)
     if with_baseline:
+        baseline_dataset = dataset.copy()
         baseline_model, baseline_metrics = fit_lrc_model(
-            dataset,
+            baseline_dataset,
             model=BaselineModel(), 
             training_set_size=sample_size,
             test_set_size=sample_size,
         )
-        dataset = lrc_mrm_segmentation(dataset, baseline_model)
-        baseline_mutual_info_score = compare_to_reference(dataset)
+        baseline_dataset = lrc_mrm_segmentation(baseline_dataset)
+        baseline_mutual_info_score = compare_to_reference(baseline_dataset)
         print('''
 ---------------------------------------
               \n> BASELINE Test set accuracy: {:.3f}
@@ -157,107 +106,58 @@ def run_test(folder, cps, sample_size, spatial_resolution, with_baseline=True,
               baseline_metrics['test_set_accuracy'],
               baseline_mutual_info_score))
     
-    return dataset#, metrics, mutual_info_score, baseline_metrics, baseline_mutual_info_score
+    if with_reconstruction_analysis:
+        # NMF reconstruction error analysis shown in the paper
+        data = DataImporter(folder).load_npy_data().get('data')
+        reconstruction_analysis(dataset, data) 
+        
+    if with_merging_fraction:
+        # Generates the merging fraction bar plot shown in the paper.
+        compute_merging_fraction(dataset, bin_width=10)
     
+    return dataset, metrics
+
 if __name__=='__main__': 
     
-    # Number of components in the NMF decomposition
-    nmf_components = 20 # Note: 10 for inconel works best (lower angular resol)
+    # (Sensible default) Number of components in the NMF decomposition
+    nmf_components = 20 # Note: 10 for i718 works better (lower angular resol)
     
-    # Random sampling size in both NMF and LRC fitting
+    # Random sampling size in both NMF and LRC model fittings
     sample_size = 10_000
     
-    # ### RUN TEST ON NICKEL SAMPLE
-    # dataset = run_test(
-    #     # Relative path to data folder
-    #     folder='../data/coin/try2/', 
-    #     cps=nmf_components,
-    #     sample_size=sample_size,
-    #     # Resloution of the domain in um/px
-    #     spatial_resolution=13.06,
-    #     with_baseline=False,
-    #     with_regularization=False,
-    # )    
+    # Relative path to folder and spatial resolutions in um/px, for each sample
+    samples = {
+        'Ti':('../data/titanium/', 18.33),
+        'Al':('../data/aluminium/', 22.10),
+        'I718':('../data/i718/', 18.90),
+        'Ni':('../data/nickel/', 13.06),
+    }
     
-    # data = DataImporter('../data/coin/try2/').load_npy_data().get('data')
-    # sizes, errs = reconstruction_analysis(dataset, data)   
-    
-    # dataset = run_test(
-    #     # Relative path to data folder
-    #     folder='../data/inconel_R4_subset/', 
-    #     cps=nmf_components,
-    #     sample_size=sample_size,
-    #     # Resloution of the domain in um/px
-    #     spatial_resolution=18.90,
-    #     with_baseline=True,
-    # )
-    
-    ### RUN TEST ON ALUMINIUM SAMPLE
-    
-    # dataset = run_test(
-    #     folder='../data/aluminium/', 
-    #     cps=nmf_components, 
-    #     # cps=[5, 10, 20, 30, 40, 50, 70, 100],
-    #     sample_size=sample_size,
-    #     spatial_resolution=22.10,
-    #     with_baseline=False,
-    #     with_regularization=True,
-    # )
-    
-    
-    
-    # ### Intra-granular feature vector variance (IGFV)
-    # import pandas as pd
-    # data = dataset.get('data') # (None, 20)
-    # seg = dataset.get('segmentation') # (None,)
-    # rx, ry = dataset.get('spatial_resol')
-    # fv_mean = np.mean(data, 1)
-    # data = np.vstack((seg, fv_mean)).T
-    # df = pd.DataFrame(data=data, columns=['grain', 'fv_mean'])
-    # df['grainID'] = df['grain'].astype('str')
-    # groups = df.groupby('grainID').std().sort_values('grain', ascending=False)
-    # groups = groups[~pd.isna(groups)] # does not work
-    # im = np.empty((rx, ry), dtype=np.float64)
-    # s = seg.reshape((rx, ry))
-    # for grain_id, value in zip(groups.index, groups['fv_mean']):
-    #     im[s==int(float(grain_id))] = value
-    # fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-    # ax.imshow(im[rx//4+50:rx//2+50,ry//4:ry//2])
-    # ax.axis('off')
-    # plt.show()
-    
-    
-    
-    # data = DataImporter('../data/aluminium/').load_npy_data().get('data')
-    # reconstruction_analysis(dataset, data) 
-    
-    ### RUN TEST ON TITANIUM SAMPLE
-    # accs, miss = [], []
-    # baccs, bmiss = [], []
-    for k in range(1):
-        dataset = run_test(#, metrics, mis, bmetrics, bmis = run_test(
-            folder='../data/titanium/', #'../data/titanium/', 
-            cps=nmf_components, 
+    ### Run test on specific sample (here, Ti)
+    dataset, metrics = run_test(
+            sample = samples.get('Ti'),
+            cps=nmf_components,
             sample_size=sample_size,
-            spatial_resolution=18.33,
-            with_baseline=False,
+            # Optional: benchmark against baseline model
+            with_baseline=False, 
+            # Optional: use cross-validation of log. regression L2 penalty
+            with_regularization=False,
+            # Optional: compute NMF reconstruction error as in the paper
+            with_reconstruction_analysis=False,
+            # Optional: compute merging fractions as in the paper
+            with_merging_fraction=False,
         )
-        # accs.append(metrics['test_set_accuracy'])
-        # miss.append(mis)
-        # baccs.append(bmetrics['test_set_accuracy'])
-        # bmiss.append(bmis)
-        
-    # import numpy as np
     
-    # print('>>> Acc mean: ', np.mean(np.array(accs)))
-    # print('>>> Acc std: ', np.std(np.array(accs)))
-    # print('>>> MIS mean: ', np.mean(np.array(miss)))
-    # print('>>> MIS std: ', np.std(np.array(miss)))
+    ### Alternatively, run test on all samples at once
+    # for key in samples.keys():
+    #     dataset, metrics = run_test(
+    #         sample = samples.get(key),
+    #         cps=nmf_components,
+    #         sample_size=sample_size,
+    #         with_baseline=False,
+    #         with_regularization=False,
+    #         with_reconstruction_analysis=False,
+    #         with_merging_fraction=False,
+    #     )
     
-    # print('>>> bAcc mean: ', np.mean(np.array(baccs)))
-    # print('>>> bAcc std: ', np.std(np.array(baccs)))
-    # print('>>> bMIS mean: ', np.mean(np.array(bmiss)))
-    # print('>>> bMIS std: ', np.std(np.array(bmiss)))
     
-    data = DataImporter('../data/titanium/').load_npy_data().get('data')
-    e, s = reconstruction_analysis(dataset, data)

@@ -7,6 +7,7 @@ from skimage.color import label2rgb
 from skimage.segmentation import find_boundaries
 from skimage.morphology import skeletonize
 from sklearn.metrics import normalized_mutual_info_score as nmis
+import tensorflow as tf
 
 def compare_to_reference(dataset):
     '''
@@ -28,7 +29,7 @@ def compare_to_reference(dataset):
     
     np.save('C:/Users/mallo/Desktop/ipfZ.npy', ipfZ)
     
-    # ### SHOWING ROW IPF-Z
+    ### SHOWING ROW IPF-Z
     # fig, ax = plt.subplots(figsize=(8,8))
     # ax.imshow(ipfZ)
     # ax.axis('off')
@@ -37,7 +38,7 @@ def compare_to_reference(dataset):
     lab = label2rgb(segmentation, ipfZ, kind='avg')
     rgb_seg = label2rgb(segmentation, lab, kind='avg')
     rgb_seg[gbsseg] = (1,1,1)
-    rgb_ref = label2rgb(reference, lab, kind='avg')
+    rgb_ref = label2rgb(reference, ipfZ, kind='avg') # lab (init) or ipfZ?
     rgb_ref[gbsref] = (1,1,1)
     
     # Mutual information score between segmentation and reference
@@ -57,126 +58,6 @@ def compare_to_reference(dataset):
     plt.show()
 
     return mis_score
-
-def reconstruction_analysis(dataset, data):
-    
-    rx, ry = dataset.get('spatial_resol')
-    s0, s1 = dataset.get('angular_resol')
-    rag = dataset.get('rag')
-    um_per_pix = dataset.get('um_per_px')
-    compressor = dataset.get('compressor')
-    comps = compressor.compressor.components_
-    compressed_data = dataset.get('data')
-    
-    reconstructed_data = np.matmul(compressed_data, comps)
-    
-    print('DONE') # Bugs from here...
-    error_map = np.mean(np.square(reconstructed_data-data), axis=1)
-    error_map = error_map.reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
-    seg = dataset.get('segmentation').reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
-    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-    ax.imshow(error_map)
-    ax.axis('off')
-    plt.show()
-    
-    data_reshaped = data.reshape((rx,ry,s0*s1))
-    errs = []
-    sizes = []
-    for ix, (n, d) in enumerate(rag.nodes(data=True)):
-        m = d.get('master')
-        x, y = int(d.get('xpos')), int(d.get('ypos'))
-        orig = data_reshaped[x,y]
-        reco = np.matmul(m, comps)#.reshape((s0, s1))
-        recon_error = np.mean(np.square(reco-orig))
-        errs.append(recon_error)
-        sizes.append(d.get('count'))
-
-    errs = np.array(errs)
-    sizes = np.sqrt(np.array(sizes)*um_per_pix**2)
-    
-    ### Size partitioning histogram
-    
-    size_threshold = 50
-    small_grain_errors = errs[sizes<size_threshold]
-    large_grain_errors = errs[sizes>size_threshold]
-    
-    med = np.median(errs)
-    print('MED: ', med)
-    print('AVG: ', np.mean(errs))
-    
-    error_quantile = med
-    f_small = small_grain_errors[small_grain_errors>error_quantile]
-    f_large = large_grain_errors[large_grain_errors>error_quantile]
-    
-    print('f small: ', f_small.shape)
-    print('f large: ', f_large.shape)
-    print('small grains: ', small_grain_errors.shape)
-    print('large grains: ', large_grain_errors.shape)
-    
-    f = len(f_small) / (len(f_large) + len(f_small))
-    print(f'Fraction of anomalies in small grains: {f}')
-    n = len(small_grain_errors) / (len(large_grain_errors) + len(small_grain_errors))
-    print(f'Fraction of anomalies in all grains: {n}')
-    
-    import seaborn as sns
-    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-    sns.distplot(large_grain_errors, bins=20, kde=True, ax=ax, label='> 100 px')
-    sns.distplot(small_grain_errors, bins=20, kde=True, ax=ax, label='< 100 px')
-    plt.legend()
-    plt.show()
-    
-    ###
-
-    bin_width = 100
-    
-    binned_errs = []
-    binned_stds = []
-    labs = []
-    for k in range(0, 500+bin_width, bin_width):
-        filt = (sizes < k+bin_width) & (sizes > k)
-        binned_errs.append(errs[filt].mean())
-        binned_stds.append(errs[filt].std())
-        labs.append('{}-{}'.format(k, k+bin_width))
-    
-    filt = (sizes > 500)
-    binned_errs.append(errs[filt].mean())
-    binned_stds.append(errs[filt].std())
-    labs.append('>500')
-
-    bnr = (binned_errs-min(errs))/max(errs-min(errs))
-    fig, ax = plt.subplots(figsize=(4,3), dpi=200)
-    ax.set_xlabel('Region size (microns)')
-    # ax.set_ylabel('NMF reconstruction error')
-    ax.bar(labs, binned_errs, 
-           color=plt.cm.viridis(bnr),
-           yerr=binned_stds, capsize=3)
-    ax.set_xticklabels(labs, rotation=30)
-    # ax.set_yticks([])
-    plt.show()
-    
-    df = pd.DataFrame(data=seg.ravel(), columns=['grain'])
-    df['grainID'] = df['grain'].astype('str')
-    groups = df.groupby('grainID').count().sort_values('grain', ascending=False)
-    small_grains = np.squeeze(groups.values < 10)
-    small_grains = groups.index[small_grains].values.astype('int')
-    
-    mask = np.zeros(seg.shape, dtype=np.uint8)
-    for idx in small_grains:
-        mask[seg==idx] = 1
-    
-    gbs = dataset.get('boundaries').astype('int').reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
-    
-    composite = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
-    composite[(gbs==0)] = np.array([0,111,158])
-    composite[gbs==1] = np.array([255,255,255])
-    composite[mask==1] = np.array([255,0,0])
-    
-    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
-    ax.imshow(composite)
-    ax.axis('off')
-    plt.show()
-    
-    return sizes, errs
 
 def size_dist_plot(dataset, limdown=0, limup=1000, gsize=100):
     '''
@@ -226,7 +107,230 @@ def size_dist_plot(dataset, limdown=0, limup=1000, gsize=100):
     ax.yaxis.set_major_formatter(PercentFormatter(1))
     plt.legend(loc=4)
     plt.show()
+
+def reconstruction_analysis(dataset, data):
     
+    rx, ry = dataset.get('spatial_resol')
+    s0, s1 = dataset.get('angular_resol')
+    seg = dataset.get('segmentation').reshape((rx,ry))
+    rag = dataset.get('rag')
+    um_per_pix = dataset.get('um_per_px')
+    compressor = dataset.get('compressor')
+    comps = compressor.compressor.components_
+    
+    data_reshaped = data.reshape((rx,ry,s0*s1))
+    errs = []
+    sizes = []
+    for ix, (n, d) in enumerate(rag.nodes(data=True)):
+        m = d.get('master')
+        x, y = int(d.get('xpos')), int(d.get('ypos'))
+        orig = data_reshaped[x,y]
+        reco = np.matmul(m, comps)#.reshape((s0, s1))
+        recon_error = np.mean(np.square(reco-orig))
+        errs.append(recon_error)
+        sizes.append(d.get('count'))
+
+    errs = np.array(errs)
+    sizes = np.sqrt(np.array(sizes)*um_per_pix**2)
+    
+    bin_width = 100
+    
+    binned_errs = []
+    binned_stds = []
+    labs = []
+    for k in range(0, 500+bin_width, bin_width):
+        filt = (sizes < k+bin_width) & (sizes > k)
+        binned_errs.append(errs[filt].mean())
+        binned_stds.append(errs[filt].std())
+        labs.append('{}-{}'.format(k, k+bin_width))
+    
+    filt = (sizes > 500)
+    binned_errs.append(errs[filt].mean())
+    binned_stds.append(errs[filt].std())
+    labs.append('>500')
+
+    bnr = (binned_errs-min(errs))/max(errs-min(errs))
+    fig, ax = plt.subplots(figsize=(4,3), dpi=200)
+    ax.set_xlabel('Region size (microns)')
+    ax.bar(labs, binned_errs, 
+            color=plt.cm.viridis(bnr),
+            yerr=binned_stds, capsize=3)
+    ax.set_xticklabels(labs, rotation=30)
+    ax.set_ylabel('NMF reconstruction error')
+    plt.show()
+    
+    df = pd.DataFrame(data=seg.ravel(), columns=['grain'])
+    df['grainID'] = df['grain'].astype('str')
+    groups = df.groupby('grainID').count().sort_values('grain', ascending=False)
+    small_grains = np.squeeze(groups.values < 10)
+    small_grains = groups.index[small_grains].values.astype('int')
+    
+    mask = np.zeros(seg.shape, dtype=np.uint8)
+    for idx in small_grains:
+        mask[seg==idx] = 1
+    
+    gbs = dataset.get('boundaries').astype('int').reshape((rx,ry))#[rx//4+50:rx//2+50,ry//4:ry//2]
+    
+    composite = np.zeros((seg.shape[0], seg.shape[1], 3), dtype=np.uint8)
+    composite[(gbs==0)] = np.array([0,111,158])
+    composite[gbs==1] = np.array([255,255,255])
+    composite[mask==1] = np.array([255,0,0])
+    
+    fig, ax = plt.subplots(figsize=(8,8), dpi=200)
+    ax.imshow(composite)
+    ax.axis('off')
+    plt.show()
+
+def misorientation(eulers_set_1, eulers_set_2):
+    SYMMETRIES = tf.Variable([
+        [[1,0,0],[0,1,0],[0,0,1]],
+        [[0,0,1],[1,0,0],[0,1,0]],
+        [[0,1,0],[0,0,1],[1,0,0]], 
+        [[0,-1,0],[0,0,1],[-1,0,0]], 
+        [[0,-1,0],[0,0,-1],[1,0,0]], 
+        [[0,1,0],[0,0,-1],[-1,0,0]],
+        [[0,0,-1],[1,0,0],[0,-1,0]],
+        [[0,0,-1],[-1,0,0],[0,1,0]],
+        [[0,0,1],[-1,0,0],[0,-1,0]],
+        [[-1,0,0],[0,1,0],[0,0,-1]],
+        [[-1,0,0],[0,-1,0],[0,0,1]], 
+        [[1,0,0],[0,-1,0],[0,0,-1]], 
+        [[0,0,-1],[0,-1,0],[-1,0,0]], 
+        [[0,0,1],[0,-1,0],[1,0,0]],
+        [[0,0,1],[0,1,0],[-1,0,0]],
+        [[0,0,-1],[0,1,0],[1,0,0]],
+        [[-1,0,0],[0,0,-1],[0,-1,0]], 
+        [[1,0,0],[0,0,-1],[0,1,0]], 
+        [[1,0,0],[0,0,1],[0,-1,0]], 
+        [[-1,0,0],[0,0,1],[0,1,0]], 
+        [[0,-1,0],[-1,0,0],[0,0,-1]],
+        [[0,1,0],[-1,0,0],[0,0,1]], 
+        [[0,1,0],[1,0,0],[0,0,-1]],
+        [[0,-1,0],[1,0,0],[0,0,1]], 
+    ], dtype=tf.float32) # of float64 sometimes, for some reason
+    
+    def eulers_to_rot_mat(eulers):
+        i1  = eulers[:,0]
+        i2  = eulers[:,1]
+        i3  = eulers[:,2]       
+        i1c = tf.cos(i1)
+        i1s = tf.sin(i1)
+        i2c = tf.cos(i2)
+        i2s = tf.sin(i2)
+        i3c = tf.cos(i3)
+        i3s = tf.sin(i3)
+        x00 = i1c*i2c*i3c-i1s*i3s
+        x01 = -i3c*i1s-i1c*i2c*i3s
+        x02 = i1c*i2s
+        x10 = i1c*i3s+i2c*i3c*i1s
+        x11 = i1c*i3c-i2c*i1s*i3s
+        x12 = i1s*i2s
+        x20 = -i3c*i2s
+        x21 = i2s*i3s
+        x22 = i2c
+        c0 = tf.stack((x00,x01,x02), axis=1)
+        c1 = tf.stack((x10,x11,x12), axis=1)
+        c2 = tf.stack((x20,x21,x22), axis=1)
+        rot_mat = tf.stack((c0,c1,c2), axis=1)
+        return rot_mat
+    
+    def angle_function_acos(r1, r2, sym):
+        traces = rot_mat_to_trace(r1, r2, sym)
+        angle = tf.acos((traces-1)/2)
+        return angle
+    
+    def rot_mat_to_trace(r1, r2, sym):
+        r2sym = tf.linalg.matmul(tf.cast(r1,'float32'), tf.cast(sym, 'float32'))
+        dg = tf.linalg.matmul(tf.cast(r2sym, 'float32'), tf.cast(r2, 'float32'))
+        traces = tf.linalg.trace(dg)
+        traces = tf.clip_by_value(traces, -1, 3)
+        return traces
+    
+    r1 = eulers_to_rot_mat(eulers_set_1)
+    r2 = eulers_to_rot_mat(eulers_set_2)
+    r2 = tf.linalg.inv(r2)
+    angles = [angle_function_acos(r1, r2, SYMMETRIES[k]) for k in range(24)]
+    min_angles = tf.reduce_min(tf.abs(angles), axis=0)
+    
+    return min_angles
+
+def compute_merging_fraction(dataset, bin_width=10):
+    
+    probas, moas = _failure_investigation(dataset)
+    
+    binned_probas = []
+    binned_merge_fraction = []
+    binned_stds = []
+    labs = []
+    
+    for k in range(0, 60-bin_width, bin_width):
+        filt = (moas < k+bin_width) & (moas > k)
+        binned_probas.append(probas[filt].mean())
+        binned_stds.append(probas[filt].std())
+        f = (probas[filt]<0.5).sum() / len(probas[filt])
+        binned_merge_fraction.append(f)
+        labs.append('{}-{}'.format(k, k+bin_width))
+    
+    filt = (moas > 60-bin_width)
+    binned_probas.append(probas[filt].mean())
+    binned_stds.append(probas[filt].std())
+    f = (probas[filt]<0.5).sum() / len(probas[filt])
+    binned_merge_fraction.append(f)
+    labs.append(f'>{60-bin_width}')
+    bnr = (binned_probas-min(probas))/max(probas-min(probas))
+    
+    fig, ax = plt.subplots(figsize=(4,3), dpi=200)
+    ax.set_xlabel('Misorientation angle')
+    ax.set_ylabel('Merging fraction')
+    ax.bar(labs, binned_merge_fraction, 
+            color=plt.cm.viridis(bnr),
+            capsize=3)
+    ax.set_xticklabels(labs, rotation=30)
+    ax.set_ylim(0,1)
+    plt.show()
+
+def _failure_investigation(dataset):
+    
+    coords = _generate_coords(dataset, how_many=5000, distance=5, delta=2)
+
+    lrc_model = dataset.get('lrc_model')
+    rx, ry = dataset.get('spatial_resol')
+    data = dataset.get('data').reshape((rx, ry, 20))
+    eulers = dataset.get('eulers').reshape((rx,ry,3))
+
+    probas = []
+    moas = []
+    for k, (p0, p1) in enumerate(coords):
+        f0 = data[p0[0], p0[1]]
+        f1 = data[p1[0], p1[1]]
+        e0 = eulers[p0[0], p0[1]]
+        e1 = eulers[p1[0], p1[1]]
+        e0 = np.array(e0)[np.newaxis,:]
+        e1 = np.array(e1)[np.newaxis,:]
+        moa = np.degrees(misorientation(e0, e1))
+        moas.append(moa)
+        vect = np.square(np.subtract(f0,f1))
+        p = lrc_model.predict_proba(np.atleast_2d(vect))[0,1]
+        probas.append(p)
+    probas = np.array(probas)
+    moas = np.squeeze(np.array(moas))
+    
+    return probas, moas
+
+def _generate_coords(dataset, how_many=10, distance=5, delta=2):
+    rx, ry = dataset.get('spatial_resol')
+    seedsX0 = np.random.randint(2*distance, rx-2*distance, how_many)
+    seedsY0 = np.random.randint(2*distance, ry-2*distance, how_many)
+    deltaX = np.random.randint(distance-delta, distance+delta, how_many)*np.sign(np.random.randint(0, 2, how_many)-0.5)
+    deltaY = np.random.randint(distance-delta, distance+delta, how_many)*np.sign(np.random.randint(0, 2, how_many)-0.5)
+    seedsX1 = seedsX0 + deltaX
+    seedsY1 = seedsY0 + deltaY
+    u = np.vstack((seedsX0, seedsY0))
+    v = np.vstack((seedsX1, seedsY1))
+    coords = np.transpose(np.array([u, v]), [2,0,1])
+    coords = coords.astype(np.uint8)
+    return coords
+
 def _eulers_to_orientation(eulers_list):
     '''Converts a set of euler angles to a set of rotation matrices and inv.'''
     i1  = eulers_list[:,0]

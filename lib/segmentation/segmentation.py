@@ -5,7 +5,7 @@ from skimage.segmentation import find_boundaries
 from skimage.morphology import skeletonize
 from lib.segmentation.training import _vector_similarity
 
-def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
+def lrc_mrm_segmentation(dataset, p_limit=0.5):
     '''
     Implementation of the multi-region merging segmentation controlled by 
     a trained classifier model. Design of the function was originally inspired 
@@ -15,6 +15,7 @@ def lrc_mrm_segmentation(dataset, model, p_limit=0.5):
     # Collect spatial resolution and data from dataset
     rx, ry = dataset.get('spatial_resol')
     data = dataset.get('data')
+    model = dataset.get('lrc_model')
     
     # Define merging decision function
     mdf = lambda vect:model.predict_proba(np.atleast_2d(vect))[0,1]

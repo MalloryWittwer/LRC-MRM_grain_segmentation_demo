@@ -1,24 +1,20 @@
 import numpy as np
-
-np.random.seed(0)
-print('SETTING THE SEED TO ZERO -----<')
-
 from sklearn.metrics import confusion_matrix
-
 from sklearn.model_selection import KFold
-
 
 def fit_lrc_model(dataset, model, training_set_size, test_set_size,
                   with_regularization=False,
+                  
+                  # training_set = None,
+                  
                   ):
     '''Fits a model, computes precision, recall and accuracy'''
     # Get training set by random sampling
-    training_set = _get_sample_set(dataset, training_set_size)
-    
-    # print('Training set: ', training_set['x'][0])
+    training_set = get_sample_set(dataset, training_set_size)
     
     # Get test set by random sampling
-    test_set = _get_sample_set(dataset, test_set_size)
+    test_set = get_sample_set(dataset, test_set_size)
+    
     
     if with_regularization:
         strengths = [1e-3, 1e-2, 1e-1, 1.0, 10, 100]
@@ -59,7 +55,9 @@ def fit_lrc_model(dataset, model, training_set_size, test_set_size,
         'test_set_accuracy':_accuracy(cm_test),
     }
     
-    return model, metrics
+    dataset['lrc_model'] = model
+    
+    return dataset, metrics
 
 def _shuffler(data, sample_size):
     '''
@@ -148,7 +146,7 @@ def _get_non_adjacent_sample(data, sample_size, xmap, ymap):
     
     return Xfar, yfar
 
-def _get_sample_set(dataset, sample_size):
+def get_sample_set(dataset, sample_size):
     '''
     Randomly extracts a training or test set from the dataset.
     - Class 0: pairs of adjacent voxels
